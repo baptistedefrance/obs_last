@@ -1,0 +1,141 @@
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.attributes.app_metrics.input]
+    logs = [
+      otelcol.processor.filter.logs_demo.input,
+      otelcol.processor.filter.logs_payments.input,
+      otelcol.processor.filter.logs_default.input,
+    ]
+    traces = [otelcol.exporter.debug.default.input]
+  }
+}
+
+otelcol.processor.attributes "app_metrics" {
+  action {
+    key    = "team"
+    value  = "platform"
+    action = "insert"
+  }
+
+  action {
+    key    = "deployment.environment"
+    value  = "lab"
+    action = "insert"
+  }
+
+  output {
+    metrics = [otelcol.exporter.prometheus.app_metrics.input]
+  }
+}
+
+otelcol.exporter.prometheus "app_metrics" {
+  forward_to = [
+    prometheus.remote_write.mimir.receiver,
+  ]
+}
+
+prometheus.scrape "node_exporter" {
+  targets = [
+    {
+      "__address__" = "node_exporter:9100",
+      "job" = "node_exporter",
+    },
+  ]
+
+  scrape_interval = "15s"
+
+  forward_to = [
+    prometheus.remote_write.mimir.receiver,
+  ]
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+  }
+}
+
+otelcol.exporter.debug "default" {
+  verbosity = "detailed"
+}
+
+otelcol.processor.filter "logs_demo" {
+  error_mode = "ignore"
+
+  logs {
+    log_record = [
+      `resource.attributes["service.name"] != "demo"`,
+    ]
+  }
+
+  output {
+    logs = [otelcol.exporter.otlphttp.loki_demo.input]
+  }
+}
+
+otelcol.processor.filter "logs_payments" {
+  error_mode = "ignore"
+
+  logs {
+    log_record = [
+      `resource.attributes["service.name"] != "payments"`,
+    ]
+  }
+
+  output {
+    logs = [otelcol.exporter.otlphttp.loki_payments.input]
+  }
+}
+
+otelcol.processor.filter "logs_default" {
+  error_mode = "ignore"
+
+  logs {
+    log_record = [
+      `resource.attributes["service.name"] == "demo"`,
+      `resource.attributes["service.name"] == "payments"`,
+    ]
+  }
+
+  output {
+    logs = [otelcol.exporter.otlphttp.loki_default.input]
+  }
+}
+
+otelcol.exporter.otlphttp "loki_demo" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+
+    headers = {
+      "X-Scope-OrgID" = "team-demo",
+    }
+  }
+}
+
+otelcol.exporter.otlphttp "loki_payments" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+
+    headers = {
+      "X-Scope-OrgID" = "team-payments",
+    }
+  }
+}
+
+otelcol.exporter.otlphttp "loki_default" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+
+    headers = {
+      "X-Scope-OrgID" = "default",
+    }
+  }
+}

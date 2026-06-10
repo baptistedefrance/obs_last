@@ -1,0 +1,100 @@
+services:
+  alloy:
+    image: grafana/alloy:v1.5.1
+    container_name: alloy
+    restart: unless-stopped
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "12345:12345"
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=experimental
+
+  app:
+    build:
+      context: ./app
+    container_name: demo-flask
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      OTEL_SERVICE_NAME: demo
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_METRIC_EXPORT_INTERVAL: 5000
+    depends_on:
+      - alloy
+
+  app2:
+    build:
+      context: ./app
+    container_name: payments-flask
+    restart: unless-stopped
+    ports:
+      - "5051:5050"
+    environment:
+      OTEL_SERVICE_NAME: payments
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_METRIC_EXPORT_INTERVAL: 5000
+    depends_on:
+      - alloy
+
+  mimir:
+    image: grafana/mimir:2.14.0
+    container_name: mimir
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/mimir/config.yml
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir/config.yml:/etc/mimir/config.yml
+      - mimir-data:/data
+
+  loki:
+    image: grafana/loki:3.3.0
+    container_name: loki
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml
+      - loki-data:/loki
+
+  node_exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node_exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - mimir
+      - loki
+
+volumes:
+  mimir-data:
+  loki-data:
